@@ -198,7 +198,7 @@ template<> void cXMLSerializer::Visit<iProperty::ePTString>(iProperty& p)
 
 template<> void cXMLSerializer::Visit<iProperty::ePTVector3>(iProperty& p)
 {
-	Vector3 v = p.GetValue<const Vector3&>();
+	const Vector3& v = p.GetValue<const Vector3&>();
 	tBoostPTree pt;
 	pt.put<float>("x", v.X);
 	pt.put<float>("y", v.Y);
@@ -246,12 +246,8 @@ template<> void cXMLDeserializer::Visit<iProperty::ePTString>(iProperty& p)
 
 template<> void cXMLDeserializer::Visit<iProperty::ePTVector3>(iProperty& p)
 {
-	Vector3 v;
 	tBoostPTree pt = PT.get<tBoostPTree>(p.GetName());
-	v.X = pt.get<float>("x");
-	v.Y = pt.get<float>("y");
-	v.Z = pt.get<float>("z");
-	p.SetValue(v);
+	p.SetValue(Vector3(pt.get<float>("x"), pt.get<float>("y"), pt.get<float>("z")));
 }
 
 template<> void cXMLDeserializer::Visit<iProperty::ePTCollection>(iProperty& p)
@@ -295,13 +291,38 @@ private:
 	tProperties Properties;
 };
 
-class cTestActor
+struct iBaseProperties
+{
+	virtual ~iBaseProperties() {}
+
+	virtual iIterableProperties& GetProperties() = 0;
+};
+
+class cBaseProperties : public iBaseProperties
 {
 public:
+	// iBaseProperties:
 	iIterableProperties& GetProperties() { return PList; }
-private:
-	cPropertiesList PList;
+	// iBaseProperties.
 
+protected:
+	cPropertiesList PList;
+};
+
+class cPropertiesSystem
+{
+public:
+	void Register(iBaseProperties& object) { Registery.push_back(object); }
+	void SaveXML(const char* file);
+	void LoadXML(const char* file) {}
+
+private:
+	typedef std::vector<iBaseProperties&> tRegistry;
+	tRegistry Registery;
+};
+
+class cTestActor : cBaseProperties
+{
 public:
 	cTestActor()
 		: Name("Termagoyf")
