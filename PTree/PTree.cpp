@@ -325,7 +325,7 @@ class cTestActor : cBaseProperties
 {
 public:
 	cTestActor()
-		: Name("Termagoyf")
+		: Name("Termogoyf")
 		, Health(100)
 		, Pos(100.f, 50.f, 0.f)
 	{
