@@ -8,6 +8,8 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
 
+typedef unsigned int uint;
+
 struct Vector3
 {
 	Vector3() : X(0.f), Y(0.f), Z(0.f) {}
@@ -263,45 +265,62 @@ private:
 	tProperties Properties;
 };
 
-struct iBaseProperties
+struct iBaseObject
 {
-	virtual ~iBaseProperties() {}
+	virtual ~iBaseObject() {}
 
 	virtual iIterableProperties& GetProperties() = 0;
+	virtual uint GetID() const = 0;
+	virtual const char* GetObjectType() const = 0;
 };
 
-class cBaseProperties : public iBaseProperties
+class cBaseObject : public iBaseObject
 {
 public:
+	cBaseObject(uint id, const char* type)
+		: ID(id)
+		, ObjectType(type)
+	{
+		PList.Register(cPropertiesList::rProperty(new cProperty("ID", ID)));
+	}
+
 	// iBaseProperties:
 	iIterableProperties& GetProperties() { return PList; }
+	virtual uint GetID() const { return ID; }
+	virtual const char* GetObjectType() const { return ObjectType.c_str(); }
 	// iBaseProperties.
 
 protected:
+	uint ID;
+	std::string ObjectType;
 	cPropertiesList PList;
 };
 
-class cPropertiesSystem
+class cObjectSystem
 {
 public:
-	void Register(iBaseProperties& object) { Registery.push_back(&object); }
+	void Register(iBaseObject& object) { Registery.push_back(&object); }
 	void SaveXML(const char* file);
 	void LoadXML(const char* file);
 
 private:
-	typedef std::vector<iBaseProperties*> tRegistry;
+	typedef std::vector<iBaseObject*> tRegistry;
 	tRegistry Registery;
 };
 
-void cPropertiesSystem::SaveXML(const char* file)
+void cObjectSystem::SaveXML(const char* file)
 {
 	tBoostPTree pt;
 	for (auto& obj : Registery)
-		cXMLSerializer saver(pt, *obj->GetProperties().CreateIterator());
+	{
+		tBoostPTree element;
+		cXMLSerializer saver(element, *obj->GetProperties().CreateIterator());
+		pt.add_child(obj->GetObjectType(), element);
+	}
 	write_xml(file, pt);
 }
 
-void cPropertiesSystem::LoadXML(const char* file)
+void cObjectSystem::LoadXML(const char* file)
 {
 	tBoostPTree pt;
 	read_xml(file, pt);
@@ -309,11 +328,13 @@ void cPropertiesSystem::LoadXML(const char* file)
 		cXMLDeserializer loader(pt, *obj->GetProperties().CreateIterator());
 }
 
-class cTestActor : public cBaseProperties
+class cTestActor : public cBaseObject
 {
 public:
-	cTestActor()
-		: Name("Termogoyf")
+	static const char* const SObjectType;
+	cTestActor(uint id)
+		: cBaseObject(id, SObjectType)
+		, Name("Termogoyf")
 		, Health(100)
 		, Pos(100.f, 50.f, 0.f)
 	{
@@ -329,9 +350,11 @@ private:
 	Vector3 Pos;
 };
 
+const char* const cTestActor::SObjectType = "Actor";
+
 int _tmain(int argc, _TCHAR* argv[])
 {
-	cPropertiesSystem propSystem;
+	cObjectSystem propSystem;
 	cTestActor actor;
 	propSystem.Register(actor);
 	propSystem.LoadXML("termogoyf");
