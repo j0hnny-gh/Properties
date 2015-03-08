@@ -299,13 +299,58 @@ protected:
 class cObjectSystem
 {
 public:
-	void Register(iBaseObject& object) { Registery.push_back(&object); }
+	struct iFactory
+	{
+		virtual ~iFactory() {}
+
+		virtual iBaseObject* Create(uint id) const = 0;
+		virtual const char* GetType() const = 0;
+	};
+
+	template <class C_>
+	class cFactory : public iFactory
+	{
+	public:
+		cFactory(const char* type) : Type(type) {}
+
+		// iFactory:
+		virtual iBaseObject* Create(uint id, const char* name) const override { return new C_(id); }
+		virtual const char* GetType() const override { return Type.c_str(); }
+		// iFactory.
+
+	private:
+		const std::string Type;
+	};
+
+public:
+	cObjectSystem() : NextID(0) {}
+
 	void SaveXML(const char* file);
 	void LoadXML(const char* file);
 
+	template <class C_>
+	C_* Create()
+	{
+		auto& it = std::find_if(Factories.begin(), Factories.end(), [](auto& f) { return C_::SObjectType == f.GetType(); });
+		if (it != Factories.end())
+		{
+			iBaseObject* object = it.Create(NextID++);
+			RegisterObject(*object);
+			return static_cast<C_*>(object);
+		}
+		return nullptr;
+	}
+
 private:
+	void RegisterObject(iBaseObject& object) { Registery.push_back(&object); }
+
 	typedef std::vector<iBaseObject*> tRegistry;
 	tRegistry Registery;
+
+	typedef std::vector<iFactory*> tFactories;
+	tFactories Factories;
+
+	uint NextID;
 };
 
 void cObjectSystem::SaveXML(const char* file)
@@ -328,11 +373,11 @@ void cObjectSystem::LoadXML(const char* file)
 		cXMLDeserializer loader(pt, *obj->GetProperties().CreateIterator());
 }
 
-class cTestActor : public cBaseObject
+class cActor : public cBaseObject
 {
 public:
-	static const char* const SObjectType;
-	cTestActor(uint id)
+	static const std::string SObjectType;
+	cActor(uint id)
 		: cBaseObject(id, SObjectType)
 		, Name("Termogoyf")
 		, Health(100)
@@ -342,7 +387,7 @@ public:
 		PList.Register(cPropertiesList::rProperty(new cProperty("Health", Health)));
 		PList.Register(cPropertiesList::rProperty(new cProperty("Position", Pos)));
 	}
-	~cTestActor() {}
+	~cActor() {}
 
 private:
 	int Health;
@@ -350,12 +395,32 @@ private:
 	Vector3 Pos;
 };
 
-const char* const cTestActor::SObjectType = "Actor";
+const std::string cActor::SObjectType = "Actor";
+
+class cActorFactory
+{
+public:
+	cActorFactory();
+	cActor* Create(const char* name);
+private:
+	typedef std::vector<std::pair<std::string, tBoostPTree>> tRegistry;
+	tRegistry Registry;
+};
+
+cActorFactory::cActorFactory()
+{
+
+}
+
+cActor* cActorFactory::Create(const char* name)
+{
+
+}
 
 int _tmain(int argc, _TCHAR* argv[])
 {
 	cObjectSystem propSystem;
-	cTestActor actor;
+	cActor actor;
 	propSystem.Register(actor);
 	propSystem.LoadXML("termogoyf");
 	propSystem.SaveXML("termogoyf.xml");
