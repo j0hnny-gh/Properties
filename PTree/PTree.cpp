@@ -303,9 +303,11 @@ public:
 	{
 		virtual ~iFactory() {}
 
-		virtual iBaseObject* Create(uint id) const = 0;
+		virtual iBaseObject* Create(uint id, const char* name) const = 0;
 		virtual const char* GetType() const = 0;
 	};
+
+	typedef std::unique_ptr<iFactory> rFactory;
 
 	template <class C_>
 	class cFactory : public iFactory
@@ -314,7 +316,7 @@ public:
 		cFactory(const char* type) : Type(type) {}
 
 		// iFactory:
-		virtual iBaseObject* Create(uint id, const char* name) const override { return new C_(id); }
+		virtual iBaseObject* Create(uint id, const char* name) const override { return new C_(id, name); }
 		virtual const char* GetType() const override { return Type.c_str(); }
 		// iFactory.
 
@@ -329,25 +331,36 @@ public:
 	void LoadXML(const char* file);
 
 	template <class C_>
-	C_* Create()
+	C_* Create(const char* name)
 	{
-		auto& it = std::find_if(Factories.begin(), Factories.end(), [](auto& f) { return C_::SObjectType == f.GetType(); });
-		if (it != Factories.end())
+		if (iFactory* f = FindFactory(C_::SObjectType))
 		{
-			iBaseObject* object = it.Create(NextID++);
+			iBaseObject* object = f->Create(NextID++, name);
 			RegisterObject(*object);
 			return static_cast<C_*>(object);
 		}
 		return nullptr;
 	}
 
+	void RegisterFactory(rFactory f)
+	{
+		Factories.push_back(f);
+	}
+
 private:
 	void RegisterObject(iBaseObject& object) { Registery.push_back(&object); }
+	void UnregisterObject(iBaseObject& object) { Registery.erase(std::find(Registery.begin(), Registery.end(), &object)); }
+
+	iFactory* FindFactory(const std::string& type)
+	{
+		auto& it = std::find_if(Factories.begin(), Factories.end(), [=&type](tFactories::const_iterator f) { return type == (*f)->GetType(); });
+		return (it != Factories.end()) ? it->get() : nullptr;
+	}
 
 	typedef std::vector<iBaseObject*> tRegistry;
 	tRegistry Registery;
 
-	typedef std::vector<iFactory*> tFactories;
+	typedef std::vector<rFactory> tFactories;
 	tFactories Factories;
 
 	uint NextID;
@@ -369,17 +382,25 @@ void cObjectSystem::LoadXML(const char* file)
 {
 	tBoostPTree pt;
 	read_xml(file, pt);
-	for (auto& obj : Registery)
-		cXMLDeserializer loader(pt, *obj->GetProperties().CreateIterator());
+	for (auto& element : pt.get_child(""))
+	{
+		if (iFactory* f = FindFactory(element.first))
+		{
+			iBaseObject* object = f->Create(0, "");
+			cXMLDeserializer loader(element.second, *object->GetProperties().CreateIterator());
+			RegisterObject(*object);
+		}
+	}
 }
 
 class cActor : public cBaseObject
 {
 public:
 	static const std::string SObjectType;
+
 	cActor(uint id)
-		: cBaseObject(id, SObjectType)
-		, Name("Termogoyf")
+		: cBaseObject(id, SObjectType.c_str())
+		, Name("Actor")
 		, Health(100)
 		, Pos(100.f, 50.f, 0.f)
 	{
@@ -397,32 +418,14 @@ private:
 
 const std::string cActor::SObjectType = "Actor";
 
-class cActorFactory
-{
-public:
-	cActorFactory();
-	cActor* Create(const char* name);
-private:
-	typedef std::vector<std::pair<std::string, tBoostPTree>> tRegistry;
-	tRegistry Registry;
-};
-
-cActorFactory::cActorFactory()
-{
-
-}
-
-cActor* cActorFactory::Create(const char* name)
-{
-
-}
-
 int _tmain(int argc, _TCHAR* argv[])
 {
-	cObjectSystem propSystem;
-	cActor actor;
-	propSystem.Register(actor);
-	propSystem.LoadXML("termogoyf");
-	propSystem.SaveXML("termogoyf.xml");
+	cObjectSystem ObjectSystem;
+	ObjectSystem.RegisterFactory(cObjectSystem::rFactory(new cObjectSystem::cFactory<cActor>(cActor::SObjectType.c_str())));
+	cActor* actor = ObjectSystem.Create<cActor>("Termogoyf");
+	ObjectSystem.SaveXML("termogoyf.xml");
+
+	ObjectSystem.LoadXML("termogoyf.xml");
+
 	return 0;
 }
