@@ -46,11 +46,13 @@ public:
 	{
 		ePTString = 0,
 		ePTInt,
+		ePTUInt,
 		ePTVector3,
 		ePTCollection
 	};
 public:
 	cProperty(const char* name, int& r) : Name(name), RInt(&r), Type(cProperty::ePTInt) {}
+	cProperty(const char* name, uint& r) : Name(name), RUInt(&r), Type(cProperty::ePTUInt) {}
 	cProperty(const char* name, Vector3& r) : Name(name), RVec3(&r), Type(cProperty::ePTVector3) {}
 	cProperty(const char* name, std::string& r) : Name(name), RStr(&r), Type(cProperty::ePTString) {}
 	cProperty(const char* name, const iIterableProperties& r) : Name(name), RCollection(&r), Type(cProperty::ePTCollection) {}
@@ -72,6 +74,7 @@ private:
 	union
 	{
 		int* RInt;
+		uint* RUInt;
 		Vector3* RVec3;
 		std::string* RStr;
 		const iIterableProperties* RCollection;
@@ -88,6 +91,18 @@ template<> void cProperty::SetValue(const int& v)
 {
 	assert(Type == cProperty::ePTInt);
 	*RInt = v;
+}
+
+template<> uint cProperty::GetValue() const
+{
+	assert(Type == cProperty::ePTUInt);
+	return *RUInt;
+}
+
+template<> void cProperty::SetValue(const uint& v)
+{
+	assert(Type == cProperty::ePTUInt);
+	*RUInt = v;
 }
 
 template<> const char* cProperty::GetValue() const
@@ -132,6 +147,7 @@ void cProperty::Accept(V_& visitor)
 	switch (Type)
 	{
 	case cProperty::ePTInt: visitor.Visit<ePTInt>(*this); break;
+	case cProperty::ePTUInt: visitor.Visit<ePTUInt>(*this); break;
 	case cProperty::ePTString: visitor.Visit<ePTString>(*this); break;
 	case cProperty::ePTVector3: visitor.Visit<ePTVector3>(*this); break;
 	case cProperty::ePTCollection: visitor.Visit<ePTCollection>(*this); break;
@@ -161,6 +177,11 @@ cXMLSerializer::cXMLSerializer(tBoostPTree& pt, iPropertyIterator& iter)
 template<> void cXMLSerializer::Visit<cProperty::ePTInt>(cProperty& p)
 {
 	PT.put<int>(p.GetName(), p.GetValue<int>());
+}
+
+template<> void cXMLSerializer::Visit<cProperty::ePTUInt>(cProperty& p)
+{
+	PT.put<int>(p.GetName(), p.GetValue<uint>());
 }
 
 template<> void cXMLSerializer::Visit<cProperty::ePTString>(cProperty& p)
@@ -209,6 +230,11 @@ template<> void cXMLDeserializer::Visit<cProperty::ePTInt>(cProperty& p)
 	p.SetValue(PT.get<int>(p.GetName()));
 }
 
+template<> void cXMLDeserializer::Visit<cProperty::ePTUInt>(cProperty& p)
+{
+	p.SetValue(PT.get<uint>(p.GetName()));
+}
+
 template<> void cXMLDeserializer::Visit<cProperty::ePTString>(cProperty& p)
 {
 	p.SetValue(PT.get<std::string>(p.GetName()).c_str());
@@ -229,20 +255,14 @@ template<> void cXMLDeserializer::Visit<cProperty::ePTCollection>(cProperty& p)
 class cPropertiesList : public iIterableProperties
 {
 public:
-	typedef cProperty* rProperty;
+	typedef std::unique_ptr<cProperty> rProperty;
 
 public:
-	~cPropertiesList()
-	{
-		for (auto& p : Properties)
-			delete p;
-	}
-
 	// iIterableProperties:
 	virtual rUniquePIterator CreateIterator() const override { return rUniquePIterator(new cIterator(Properties)); }
 	// iIterableProperties.
 
-	void Register(rProperty p) { Properties.push_back(p); }
+	void Register(rProperty p) { Properties.push_back(std::move(p)); }
 
 private:
 	typedef std::vector<rProperty> tProperties;
@@ -251,6 +271,7 @@ private:
 	{
 	public:
 		cIterator(const tProperties& properties) : Properties(properties), Index(-1) {}
+
 		// iPropertyIterator:
 		virtual bool Next() override { return ++Index < (int)Properties.size(); }
 		virtual cProperty& Get() override { assert(Index < (int)Properties.size()); return *Properties[Index]; }
@@ -316,7 +337,7 @@ public:
 		cFactory(const char* type) : Type(type) {}
 
 		// iFactory:
-		virtual iBaseObject* Create(uint id, const char* name) const override { return new C_(id, name); }
+		virtual iBaseObject* Create(uint id, const char* name) const override { return new C_(id); }
 		virtual const char* GetType() const override { return Type.c_str(); }
 		// iFactory.
 
@@ -333,7 +354,7 @@ public:
 	template <class C_>
 	C_* Create(const char* name)
 	{
-		if (iFactory* f = FindFactory(C_::SObjectType))
+		if (const iFactory* f = FindFactory(C_::SObjectType))
 		{
 			iBaseObject* object = f->Create(NextID++, name);
 			RegisterObject(*object);
@@ -342,18 +363,25 @@ public:
 		return nullptr;
 	}
 
+	template <class C_>
+	void Delete(C_*& ref)
+	{
+		UnregisterObject(*ref);
+		ref = nullptr;
+	}
+
 	void RegisterFactory(rFactory f)
 	{
-		Factories.push_back(f);
+		Factories.push_back(std::move(f));
 	}
 
 private:
 	void RegisterObject(iBaseObject& object) { Registery.push_back(&object); }
 	void UnregisterObject(iBaseObject& object) { Registery.erase(std::find(Registery.begin(), Registery.end(), &object)); }
 
-	iFactory* FindFactory(const std::string& type)
+	const iFactory* FindFactory(const std::string& type) const
 	{
-		auto& it = std::find_if(Factories.begin(), Factories.end(), [=&type](tFactories::const_iterator f) { return type == (*f)->GetType(); });
+		auto& it = std::find_if(Factories.begin(), Factories.end(), [&type](const rFactory& f) { return type == f->GetType(); });
 		return (it != Factories.end()) ? it->get() : nullptr;
 	}
 
@@ -384,7 +412,7 @@ void cObjectSystem::LoadXML(const char* file)
 	read_xml(file, pt);
 	for (auto& element : pt.get_child(""))
 	{
-		if (iFactory* f = FindFactory(element.first))
+		if (const iFactory* f = FindFactory(element.first))
 		{
 			iBaseObject* object = f->Create(0, "");
 			cXMLDeserializer loader(element.second, *object->GetProperties().CreateIterator());
@@ -422,10 +450,14 @@ int _tmain(int argc, _TCHAR* argv[])
 {
 	cObjectSystem ObjectSystem;
 	ObjectSystem.RegisterFactory(cObjectSystem::rFactory(new cObjectSystem::cFactory<cActor>(cActor::SObjectType.c_str())));
+
 	cActor* actor = ObjectSystem.Create<cActor>("Termogoyf");
+
 	ObjectSystem.SaveXML("termogoyf.xml");
 
 	ObjectSystem.LoadXML("termogoyf.xml");
+
+	ObjectSystem.Delete<cActor>(actor);
 
 	return 0;
 }
