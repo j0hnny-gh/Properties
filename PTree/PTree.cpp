@@ -181,7 +181,7 @@ template<> void cXMLSerializer::Visit<cProperty::ePTInt>(cProperty& p)
 
 template<> void cXMLSerializer::Visit<cProperty::ePTUInt>(cProperty& p)
 {
-	PT.put<int>(p.GetName(), p.GetValue<uint>());
+	PT.put<uint>(p.GetName(), p.GetValue<uint>());
 }
 
 template<> void cXMLSerializer::Visit<cProperty::ePTString>(cProperty& p)
@@ -364,10 +364,10 @@ public:
 	}
 
 	template <class C_>
-	void Delete(C_*& ref)
+	void Delete(C_*& object)
 	{
-		UnregisterObject(*ref);
-		ref = nullptr;
+		UnregisterObject(*object);
+		object = nullptr;
 	}
 
 	void RegisterFactory(rFactory f)
